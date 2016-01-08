@@ -41,6 +41,7 @@ public:
     int getCompleted();
     bool pendingWrites();
     int getQueueProcessingInterval();
+    int queueSize();
     void setQueueProcessingInterval(int);
     int write(const void *buf, size_t count);
     int processQueue();

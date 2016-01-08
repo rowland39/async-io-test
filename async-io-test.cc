@@ -9,14 +9,16 @@ main(void)
 {
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter("test-file.txt");
     // The default queue processing interval is 100 writes.
-    //asyncFileWriter->setQueueProcessingInterval(1000);
+    asyncFileWriter->setQueueProcessingInterval(1000);
+    // Disable queue processing during write() calls.
+    //asyncFileWriter->setQueueProcessingInterval(0);
 
     if (asyncFileWriter->openFile() == -1) {
         perror("asyncFileWriter.openFile()");
         return 1;
     }
 
-    for (int t = 0; t < 10000; t++) {
+    for (int t = 0; t < 100000; t++) {
         if (asyncFileWriter->write("Hello World\n", 12) == -1) {
             perror("asyncFileWriter.write() error");
             asyncFileWriter->cancelWrites();
@@ -32,7 +34,7 @@ main(void)
     //delete asyncFileWriter;
     //return 0;
 
-    cout << "Submitted write requests: " << asyncFileWriter->getSubmitted() <<
+    cout << "Submitted:  " << asyncFileWriter->getSubmitted() <<
          endl;
 
     // Poll on the queue until the file is written.
@@ -44,8 +46,9 @@ main(void)
             return 1;
         }
 
-        cout << "Completed write requests: " <<
+        cout << "Completed:  " <<
              asyncFileWriter->getCompleted() << endl;
+        cout << "Queue size: " << asyncFileWriter->queueSize() << endl;
     }
 
     // The destructor will also close the file, but it's best to do so

@@ -1,13 +1,23 @@
+UNAME_S := $(shell uname -s)
 CFLAGS=
-LDFLAGS=
-CC=gcc
-CPP=g++
+
+ifeq ($(UNAME_S),Linux)
+    LDFLAGS=-lrt
+    CC=gcc
+    CPP=g++
+endif
+
+ifeq ($(UNAME_S),FreeBSD)
+    LDFLAGS=
+    CC=cc
+    CPP=c++
+endif
 
 .PHONY: all
 all: async-io-test
 
 async-io-test: async-io-test.o async-file-writer.o
-	$(CPP) -o $@ $^ $(LDFLAGS) -lrt
+	$(CPP) -o $@ $^ $(LDFLAGS)
 
 async-io-test.o: async-io-test.cc
 	$(CPP) -c $< $(CFLAGS)

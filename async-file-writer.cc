@@ -4,6 +4,7 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
 {
     queueProcessingInterval = 100;
     listHead = NULL;
+    lastBuffer = NULL;
     fd = -1;
     this->filename = filename;
     openFlags = O_WRONLY|O_CREAT|O_TRUNC;
@@ -81,6 +82,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
     }
 
     if ((aio_data = malloc(count)) == NULL) {
+        free(aio_buffer);
         return -1;
     }
 
@@ -100,6 +102,8 @@ int AsyncFileWriter::write(const void *data, size_t count)
         if (errno == EAGAIN) {
             aio_buffer->enqueued = false;
         } else {
+            free(aio_data);
+            free(aio_buffer);
             return -1;
         }
     }
@@ -107,7 +111,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
     // Set the next buffer to be NULL.
     aio_buffer->next = NULL;
 
-    // Update the list of AIO buffers.
+    // Set the listHead and advance lastBuffer.
     if (listHead == NULL) {
         listHead = aio_buffer;
         lastBuffer = aio_buffer;
@@ -138,6 +142,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
 int AsyncFileWriter::processQueue()
 {
     int ret;
+    bool removed = false;
     aioBuffer *previous = NULL;
     aioBuffer *removal = NULL;
     aioBuffer *current = listHead;
@@ -151,25 +156,21 @@ int AsyncFileWriter::processQueue()
                 completed++;
 
                 // If we are at the head of the list, advance the head. This
-                // is fine even if current->next is also NULL.
+                // is fine even if current->next is NULL.
                 if (current == listHead) {
                     listHead = current->next;
-                }
-
-                // Free the current AIO buffer.
-                if (previous != NULL) {
+                    removal = current;
+                    current = current->next;
+                    free((void *)removal->aiocb.aio_buf);
+                    free(removal);
+                    removed = true;
+                } else {
                     previous->next = current->next;
                     removal = current;
                     current = current->next;
                     free((void *)removal->aiocb.aio_buf);
                     free(removal);
-                    continue;
-                } else {
-                    removal = current;
-                    current = current->next;
-                    free((void *)removal->aiocb.aio_buf);
-                    free(removal);
-                    continue;
+                    removed = true;
                 }
             } else if (ret != EINPROGRESS) {
                 return -1;
@@ -184,13 +185,38 @@ int AsyncFileWriter::processQueue()
                     return -1;
                 }
             }
-        }
 
-        previous = current;
-        current = current->next;
+            previous = current;
+            current = current->next;
+        }
+    }
+
+    // Reset lastBuffer to point to the last aioBuffer object. We only need to
+    // adjust things if an aioBuffer were removed.
+    if (removed) {
+        lastBuffer = listHead;
+        current = listHead;
+
+        while (current != NULL) {
+            lastBuffer = current;
+            current = current->next;
+        }
     }
 
     return 0;
+}
+
+int AsyncFileWriter::queueSize()
+{
+    aioBuffer *current = listHead;
+    int count = 0;
+
+    while (current != NULL) {
+        current = current->next;
+        count++;
+    }
+
+    return count;
 }
 
 void AsyncFileWriter::cancelWrites()
