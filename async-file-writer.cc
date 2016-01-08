@@ -142,7 +142,6 @@ int AsyncFileWriter::write(const void *data, size_t count)
 int AsyncFileWriter::processQueue()
 {
     int ret;
-    bool removed = false;
     aioBuffer *previous = NULL;
     aioBuffer *removal = NULL;
     aioBuffer *current = listHead;
@@ -159,18 +158,22 @@ int AsyncFileWriter::processQueue()
                 // is fine even if current->next is NULL.
                 if (current == listHead) {
                     listHead = current->next;
+                    // If this is the last buffer in the queue, lastBuffer will
+                    // also be set to NULL just like listHead above.
+                    lastBuffer = current->next;
                     removal = current;
                     current = current->next;
                     free((void *)removal->aiocb.aio_buf);
                     free(removal);
-                    removed = true;
                 } else {
+                    // If this is the last buffer in the queue, lastBuffer will
+                    // point to the last valid buffer after removal below.
+                    lastBuffer = previous;
                     previous->next = current->next;
                     removal = current;
                     current = current->next;
                     free((void *)removal->aiocb.aio_buf);
                     free(removal);
-                    removed = true;
                 }
             } else if (ret != EINPROGRESS) {
                 return -1;
@@ -186,19 +189,10 @@ int AsyncFileWriter::processQueue()
                 }
             }
 
-            previous = current;
-            current = current->next;
-        }
-    }
-
-    // Reset lastBuffer to point to the last aioBuffer object. We only need to
-    // adjust things if an aioBuffer were removed.
-    if (removed) {
-        lastBuffer = listHead;
-        current = listHead;
-
-        while (current != NULL) {
+            // Advance lastBuffer in case it was set in the removal of buffers
+            // above due to AIO completions.
             lastBuffer = current;
+            previous = current;
             current = current->next;
         }
     }
