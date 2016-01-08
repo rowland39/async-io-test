@@ -49,8 +49,8 @@ int main(int argc, char **argv)
     //delete asyncFileWriter;
     //return 0;
 
-    cout << "Submitted:  " << asyncFileWriter->getSubmitted() <<
-         endl;
+    cout << "Submitted:  " << asyncFileWriter->getSubmitted() << endl;
+    bool reported = false;
 
     // Poll on the queue until the file is written.
     while (asyncFileWriter->pendingWrites()) {
@@ -61,13 +61,17 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        cout << "Completed:  " <<
-             asyncFileWriter->getCompleted() << endl;
+        cout << "Completed:  " << asyncFileWriter->getCompleted() << endl;
         cout << "Queue size: " << asyncFileWriter->queueSize() << endl;
+        reported = true;
+    }
+
+    if (!reported) {
+        cout << "Completed:  " << asyncFileWriter->getCompleted() << endl;
     }
 
     // The destructor will also close the file, but it's best to do so
-    // explicity IMO.    
+    // explicity IMO.
     asyncFileWriter->closeFile();
     delete asyncFileWriter;
     return 0;
