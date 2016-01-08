@@ -23,9 +23,9 @@ int main(int argc, char **argv)
 
     int count = (int)strtol(argv[1], (char **)NULL, 10);
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter("test-file.txt");
-    // The default queue processing interval is 100 writes.
-    asyncFileWriter->setQueueProcessingInterval(1000);
-    // Disable queue processing during write() calls.
+    // The default queue processing interval is 40 writes.
+    //asyncFileWriter->setQueueProcessingInterval(40);
+    // Disable processing the queue.
     //asyncFileWriter->setQueueProcessingInterval(0);
 
     if (asyncFileWriter->openFile() == -1) {

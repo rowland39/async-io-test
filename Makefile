@@ -25,7 +25,7 @@ async-io-test.o: async-io-test.cc
 async-file-writer.o: async-file-writer.cc
 	$(CPP) -c $< $(CFLAGS)
 
-sync-io-test: sync-io-test.o
+sync-io-test: sync-io-test.o async-file-writer.o
 	$(CPP) -o $@ $^ $(LDFLAGS)
 
 sync-io-test.o: sync-io-test.cc

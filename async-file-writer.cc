@@ -2,7 +2,7 @@
 
 AsyncFileWriter::AsyncFileWriter(const char *filename)
 {
-    queueProcessingInterval = 100;
+    queueProcessingInterval = 40;
     listHead = NULL;
     lastBuffer = NULL;
     fd = -1;
@@ -135,6 +135,30 @@ int AsyncFileWriter::write(const void *data, size_t count)
             return -1;
         }
     }
+
+    return 0;
+}
+
+int AsyncFileWriter::syncWrite(const void *data, size_t count)
+{
+    int wbytes;
+    void *sync_data;
+
+    if ((sync_data = malloc(count)) == NULL) {
+        return -1;
+    }
+
+    memcpy(sync_data, data, count);
+
+    if ((wbytes = pwrite(fd, sync_data, count, offset)) != count) {
+        // This could be because of an error (-1 return value) or a short
+        // write. Neither of those should happen, so we just return an error.
+        free(sync_data);
+        return -1;
+    }
+
+    // Increment the offset for the next write and the submitted write count.
+    offset += count;
 
     return 0;
 }

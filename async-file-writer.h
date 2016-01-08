@@ -44,6 +44,7 @@ public:
     int queueSize();
     void setQueueProcessingInterval(int);
     int write(const void *buf, size_t count);
+    int syncWrite(const void *buf, size_t count);
     int processQueue();
     void cancelWrites();
 };

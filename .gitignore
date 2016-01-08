@@ -1,3 +1,4 @@
 *.o
 test-file.txt
 async-io-test
+sync-io-test
