@@ -4,9 +4,24 @@
 
 using namespace std;
 
-int
-main(void)
+void usage()
 {
+    cout << endl;
+    cout << "Usage: %s <write count>" << endl;
+    cout << endl;
+    cout << "The \"write count\" value indicates how many lines of \"Hello World\" will be" << endl;
+    cout << "written to ./test-file.txt asynchronously." << endl;
+    cout << endl;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) {
+        usage();
+        return -1;
+    }
+
+    int count = (int)strtol(argv[1], (char **)NULL, 10);
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter("test-file.txt");
     // The default queue processing interval is 100 writes.
     asyncFileWriter->setQueueProcessingInterval(1000);
@@ -18,7 +33,7 @@ main(void)
         return 1;
     }
 
-    for (int t = 0; t < 100000; t++) {
+    for (int t = 0; t < count; t++) {
         if (asyncFileWriter->write("Hello World\n", 12) == -1) {
             perror("asyncFileWriter.write() error");
             asyncFileWriter->cancelWrites();

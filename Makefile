@@ -26,4 +26,4 @@ async-file-writer.o: async-file-writer.cc
 	$(CPP) -c $< $(CFLAGS)
 
 clean:
-	rm -f *.o async-io-test
+	rm -f *.o async-io-test test-file.txt
