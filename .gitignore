@@ -2,3 +2,5 @@
 test-file.txt
 async-io-test
 sync-io-test
+async-cp
+sync-cp

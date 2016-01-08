@@ -14,7 +14,7 @@ ifeq ($(UNAME_S),FreeBSD)
 endif
 
 .PHONY: all
-all: async-io-test sync-io-test
+all: async-io-test sync-io-test async-cp sync-cp
 
 async-io-test: async-io-test.o async-file-writer.o
 	$(CPP) -o $@ $^ $(LDFLAGS)
@@ -31,5 +31,17 @@ sync-io-test: sync-io-test.o async-file-writer.o
 sync-io-test.o: sync-io-test.cc
 	$(CPP) -c $< $(CFLAGS)
 
+async-cp: async-cp.o async-file-writer.o
+	$(CPP) -o $@ $^ $(LDFLAGS)
+
+async-cp.o: async-cp.cc
+	$(CPP) -c $< $(CFLAGS)
+
+sync-cp: sync-cp.o async-file-writer.o
+	$(CPP) -o $@ $^ $(LDFLAGS)
+
+sync-cp.o: sync-cp.cc
+	$(CPP) -c $< $(CFLAGS)
+
 clean:
-	rm -f *.o async-io-test sync-io-test test-file.txt
+	rm -f *.o async-io-test sync-io-test async-cp sync-cp test-file.txt
