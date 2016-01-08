@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 
 using namespace std;
 
@@ -22,7 +23,7 @@ int main(int argc, char **argv)
 {
     if (argc != 2) {
         usage();
-        return -1;
+        return 1;
     }
 
     int count = (int)strtol(argv[1], (char **)NULL, 10);
@@ -32,15 +33,30 @@ int main(int argc, char **argv)
    
     if ((fd = open("test-file.txt", openFlags, openMode)) == -1) {
         perror("open error");
-        return -1;
+        return 1;
     }
 
+    // We do all of this to mimic what is needed for asynchronous writes with
+    // respect to copying the buffer to a new buffer, etc.
+    const char *message = "Hello World\n";
+    char *data;
+
     for (int t = 0; t < count; t++) {
-        if (write(fd, "Hello World\n", 12) == -1) {
+        if ((data = (char *)malloc(12)) == NULL) {
+            perror("malloc error");
+            return 1;
+        }
+
+        memcpy(data, message, strlen(message));
+
+        if (write(fd, data, 12) == -1) {
             perror("write error");
             return 1;
         }
+
+        free(data);
     }
 
+    close(fd);
     return 0;
 }
