@@ -32,6 +32,7 @@ int main(int argc, char **argv)
     }
 
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter(dest);
+    asyncFileWriter->setSynchronous(true);
 
     if (asyncFileWriter->openFile() == -1) {
         perror("asyncFileWriter.openFile()");
@@ -39,8 +40,8 @@ int main(int argc, char **argv)
     }
 
     while ((n = read(source_fd, data, DATA_SZ)) > 0) {
-        if (asyncFileWriter->syncWrite(data, n) == -1) {
-            perror("asyncFileWriter.syncWrite() error");
+        if (asyncFileWriter->write(data, n) == -1) {
+            perror("asyncFileWriter.write() error");
             delete asyncFileWriter;
             return 1;
         }

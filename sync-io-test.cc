@@ -23,6 +23,7 @@ int main(int argc, char **argv)
 
     int count = (int)strtol(argv[1], (char **)NULL, 10);
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter("test-file.txt");
+    asyncFileWriter->setSynchronous(true);
 
     if (asyncFileWriter->openFile() == -1) {
         perror("asyncFileWriter.openFile()");
@@ -30,8 +31,8 @@ int main(int argc, char **argv)
     }
 
     for (int t = 0; t < count; t++) {
-        if (asyncFileWriter->syncWrite("Hello World\n", 12) == -1) {
-            perror("asyncFileWriter.syncWrite() error");
+        if (asyncFileWriter->write("Hello World\n", 12) == -1) {
+            perror("asyncFileWriter.write() error");
             delete asyncFileWriter;
             return 1;
         }

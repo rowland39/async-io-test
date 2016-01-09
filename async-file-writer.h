@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <aio.h>
+#include <pthread.h>
 
 using namespace std;
 
@@ -31,20 +32,35 @@ private:
     off_t               offset;
     int                 submitted;
     int                 completed;
+    bool                synchronous;
+
+    // This flag indicates if the file we are working on has been opened.
+    // The open() method executes in a separate thread because open() itself
+    // can block. We never want to block the caller.
+    bool                opened;
+    pthread_mutex_t     opened_lock;
+    pthread_t           ntid;
 
 public:
     AsyncFileWriter(const char *);
     ~AsyncFileWriter();
+    // The private open() thread helper method. The argument is the this
+    // pointer so that it can call thr_open(). You have to use a static method
+    // in pthread_create().
+    static void *thr_open_helper(void *);
+    // The actual threaded open method called by the private helper.
+    void thr_open();
     int openFile();
     int closeFile();
     int getSubmitted();
     int getCompleted();
     bool pendingWrites();
+    bool getSynchronous();
+    void setSynchronous(bool);
     int getQueueProcessingInterval();
     int queueSize();
     void setQueueProcessingInterval(int);
-    int write(const void *buf, size_t count);
-    int syncWrite(const void *buf, size_t count);
+    int write(const void *, size_t);
     int processQueue();
     void cancelWrites();
 };

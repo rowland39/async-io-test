@@ -12,6 +12,9 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     offset = 0;
     submitted = 0;
     completed = 0;
+    opened = false;
+    opened_lock = PTHREAD_MUTEX_INITIALIZER;
+    synchronous = false;
 }
 
 AsyncFileWriter::~AsyncFileWriter()
@@ -25,25 +28,85 @@ AsyncFileWriter::~AsyncFileWriter()
     closeFile();
 }
 
+// This is the private open() thread helper method. This recieves a pointer
+// to this so that it can call the right object's thr_open() method. You have
+// to use a static method in pthread_create().
+void *AsyncFileWriter::thr_open_helper(void *context) {
+    ((AsyncFileWriter *)context)->thr_open();
+    return (void *)0;
+}
+
+// The actual private thread method.
+void AsyncFileWriter::thr_open()
+{
+    pthread_mutex_lock(&opened_lock);
+
+    if (!opened) {
+        // We don't need to check the result of open. If fd is -1 and opened
+        // is true, we know there was a problem.
+        fd = open(filename, openFlags, openMode);
+        opened = true;
+    }
+
+    pthread_mutex_unlock(&opened_lock);
+}
+
 int AsyncFileWriter::openFile()
 {
-    if (fd == -1) {
+    if (synchronous) {
         fd = open(filename, openFlags, openMode);
         return fd;
     }
 
-    return -1;
+    int err;
+    pthread_mutex_lock(&opened_lock);
+
+    if (!opened) {
+        pthread_mutex_unlock(&opened_lock);
+
+        if (pthread_create(&ntid, NULL, &AsyncFileWriter::thr_open_helper,
+                           this) != 0) {
+            return -1;
+        }
+
+        // We don't care about the return value here. We know there is a
+        // problem if opened is true and fd is -1.
+        if (pthread_detach(ntid) != 0) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    pthread_mutex_unlock(&opened_lock);
+    return fd;
 }
 
 int AsyncFileWriter::closeFile()
 {
     int ret = 0;
-
-    if (fd != -1) {
-        ret = close(fd);
-        fd = -1;
-    }
     
+    if (synchronous) {
+        if (fd != -1) {
+            ret = close(fd);
+        }
+
+        return ret;
+    }
+
+    pthread_mutex_lock(&opened_lock);
+
+    if (opened) {
+        if (fd == -1) {
+            // There was an open() error.
+            ret = -1;
+        } else {
+            ret = close(fd);
+            fd = -1;
+        }
+    }
+
+    pthread_mutex_unlock(&opened_lock); 
     return ret;
 }
 
@@ -67,6 +130,16 @@ int AsyncFileWriter::getQueueProcessingInterval()
     return queueProcessingInterval;
 }
 
+bool AsyncFileWriter::getSynchronous()
+{
+    return synchronous;
+}
+
+void AsyncFileWriter::setSynchronous(bool value)
+{
+    synchronous = value;
+}
+
 void AsyncFileWriter::setQueueProcessingInterval(int value)
 {
     queueProcessingInterval = value;
@@ -74,6 +147,32 @@ void AsyncFileWriter::setQueueProcessingInterval(int value)
 
 int AsyncFileWriter::write(const void *data, size_t count)
 {
+    // Do a simple pwrite() if in synchronous mode.
+    if (synchronous) {
+        int wbytes;
+
+        if ((wbytes = pwrite(fd, data, count, offset)) != count) {
+            // This could be because of an error (-1 return value) or a short
+            // write. Neither of those should happen, so we just return an
+            // error.
+            return -1;
+        }
+
+        // Increment the offset for the next write and the submitted write
+        // count.
+        offset += count;
+        return wbytes;
+    }
+
+    // Check if there was an error in open().
+    pthread_mutex_lock(&opened_lock);
+
+    if (opened && fd == -1) {
+        pthread_mutex_unlock(&opened_lock);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&opened_lock);
     aioBuffer *aio_buffer;
     void *aio_data;
 
@@ -96,16 +195,20 @@ int AsyncFileWriter::write(const void *data, size_t count)
     aio_buffer->aiocb.aio_lio_opcode = LIO_WRITE;
 
     // Issue the AIO write request.
-    if (aio_write(&aio_buffer->aiocb) == 0) {
-        aio_buffer->enqueued = true;
-    } else {
-        if (errno == EAGAIN) {
-            aio_buffer->enqueued = false;
+    if (aio_buffer->aiocb.aio_fildes != -1) {
+        if (aio_write(&aio_buffer->aiocb) == 0) {
+            aio_buffer->enqueued = true;
         } else {
-            free(aio_data);
-            free(aio_buffer);
-            return -1;
+            if (errno == EAGAIN) {
+                aio_buffer->enqueued = false;
+            } else {
+                free(aio_data);
+                free(aio_buffer);
+                return -1;
+            }
         }
+    } else {
+        aio_buffer->enqueued = false;
     }
 
     // Set the next buffer to be NULL.
@@ -139,24 +242,17 @@ int AsyncFileWriter::write(const void *data, size_t count)
     return 0;
 }
 
-int AsyncFileWriter::syncWrite(const void *data, size_t count)
-{
-    int wbytes;
-
-    if ((wbytes = pwrite(fd, data, count, offset)) != count) {
-        // This could be because of an error (-1 return value) or a short
-        // write. Neither of those should happen, so we just return an error.
-        return -1;
-    }
-
-    // Increment the offset for the next write and the submitted write count.
-    offset += count;
-
-    return 0;
-}
-
 int AsyncFileWriter::processQueue()
 {
+    // No processing is done unless the file has been opened.
+    pthread_mutex_lock(&opened_lock);
+    
+    if (!opened) {
+        pthread_mutex_unlock(&opened_lock);
+        return 0;
+    }
+
+    pthread_mutex_unlock(&opened_lock);
     int ret;
     aioBuffer *previous = NULL;
     aioBuffer *removal = NULL;
@@ -195,6 +291,10 @@ int AsyncFileWriter::processQueue()
                 return -1;
             }
         } else {
+            // Set the file descriptor in the case where this was created
+            // before the file was opened.
+            current->aiocb.aio_fildes = fd;
+
             if (aio_write(&current->aiocb) == 0) {
                 current->enqueued = true;
             } else {
