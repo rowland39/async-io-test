@@ -193,6 +193,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
         return wbytes;
     }
 
+    int current_fd;
     // Check if there was an error in open().
     pthread_mutex_lock(&openedLock);
 
@@ -201,6 +202,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
         return -1;
     }
 
+    current_fd = fd;
     pthread_mutex_unlock(&openedLock);
     aioBuffer *aio_buffer;
     void *aio_data;
@@ -215,7 +217,7 @@ int AsyncFileWriter::write(const void *data, size_t count)
     }
 
     memcpy(aio_data, data, count);
-    aio_buffer->aiocb.aio_fildes = fd;
+    aio_buffer->aiocb.aio_fildes = current_fd;
     aio_buffer->aiocb.aio_offset = offset;
     aio_buffer->aiocb.aio_buf = aio_data;
     aio_buffer->aiocb.aio_nbytes = count;
