@@ -92,7 +92,7 @@ int AsyncFileWriter::openFile()
             return -1;
         }
 
-        if (pthread_create(&ntid, NULL, &AsyncFileWriter::thr_open_helper,
+        if (pthread_create(&ntid, &attr, &AsyncFileWriter::thr_open_helper,
                            this) != 0) {
             return -1;
         }
