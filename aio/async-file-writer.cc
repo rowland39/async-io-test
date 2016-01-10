@@ -12,9 +12,10 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     offset = 0;
     submitted = 0;
     completed = 0;
+    synchronous = false;
+    closeCalled = false;
     opened = false;
     opened_lock = PTHREAD_MUTEX_INITIALIZER;
-    synchronous = false;
 }
 
 AsyncFileWriter::~AsyncFileWriter()
@@ -26,6 +27,19 @@ AsyncFileWriter::~AsyncFileWriter()
     // sure all memory allocated has really been freed to avoid memory leaks.
     cancelWrites();
     closeFile();
+
+    // Clean up the open thread attributes. The attributes will have been set
+    // only if an attempt to open the file happened.
+    pthread_mutex_lock(&opened_lock);
+
+    if (opened) {
+        pthread_attr_destroy(&attr);
+    }
+
+    pthread_mutex_unlock(&opened_lock);
+
+    // Clean up the mutex.
+    pthread_mutex_destroy(&opened_lock);
 }
 
 // This is the private open() thread helper method. This recieves a pointer
@@ -58,20 +72,28 @@ int AsyncFileWriter::openFile()
         return fd;
     }
 
-    int err;
     pthread_mutex_lock(&opened_lock);
 
     if (!opened) {
         pthread_mutex_unlock(&opened_lock);
-
-        if (pthread_create(&ntid, NULL, &AsyncFileWriter::thr_open_helper,
-                           this) != 0) {
+        // Technically, pthread_attr_init can fail. It will never fail on
+        // Linux, but this is why it is called here and not in the constructor.
+        // It should only be called once, thus is protected by the fact opened
+        // will only allow this to happen one time.
+        if (pthread_attr_init(&attr) != 0) {
             return -1;
         }
 
-        // We don't care about the return value here. We know there is a
-        // problem if opened is true and fd is -1.
-        if (pthread_detach(ntid) != 0) {
+        // Create the thread in a detached state so that its resources will
+        // be automatically cleaned when it exits. We don't care about the
+        // return value. We know the opened failed if fd is -1 and opened is
+        // true.
+        if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0) {
+            return -1;
+        }
+
+        if (pthread_create(&ntid, NULL, &AsyncFileWriter::thr_open_helper,
+                           this) != 0) {
             return -1;
         }
 
@@ -85,12 +107,19 @@ int AsyncFileWriter::openFile()
 int AsyncFileWriter::closeFile()
 {
     int ret = 0;
-    
+
+    // We should only close the file once. This is used in the destructor, so
+    // if the user closed the file explicitly, there is nothing to do.
+    if (closeCalled) {
+        return ret;
+    }
+
     if (synchronous) {
         if (fd != -1) {
             ret = close(fd);
         }
 
+        closeCalled = true;
         return ret;
     }
 
@@ -102,11 +131,11 @@ int AsyncFileWriter::closeFile()
             ret = -1;
         } else {
             ret = close(fd);
-            fd = -1;
         }
     }
 
     pthread_mutex_unlock(&opened_lock); 
+    closeCalled = true;
     return ret;
 }
 

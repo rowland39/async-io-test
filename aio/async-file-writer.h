@@ -33,6 +33,7 @@ private:
     int                 submitted;
     int                 completed;
     bool                synchronous;
+    bool                closeCalled;
 
     // This flag indicates if the file we are working on has been opened.
     // The open() method executes in a separate thread because open() itself
@@ -40,6 +41,7 @@ private:
     bool                opened;
     pthread_mutex_t     opened_lock;
     pthread_t           ntid;
+    pthread_attr_t      attr;
 
 public:
     AsyncFileWriter(const char *);
