@@ -39,7 +39,7 @@ private:
     // The open() method executes in a separate thread because open() itself
     // can block. We never want to block the caller.
     bool                opened;
-    pthread_mutex_t     opened_lock;
+    pthread_mutex_t     openedLock;
     pthread_t           ntid;
     pthread_attr_t      attr;
 

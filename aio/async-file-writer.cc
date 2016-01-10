@@ -15,7 +15,7 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     synchronous = false;
     closeCalled = false;
     opened = false;
-    opened_lock = PTHREAD_MUTEX_INITIALIZER;
+    openedLock = PTHREAD_MUTEX_INITIALIZER;
 }
 
 AsyncFileWriter::~AsyncFileWriter()
@@ -30,16 +30,16 @@ AsyncFileWriter::~AsyncFileWriter()
 
     // Clean up the open thread attributes. The attributes will have been set
     // only if an attempt to open the file happened.
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
 
     if (opened) {
         pthread_attr_destroy(&attr);
     }
 
-    pthread_mutex_unlock(&opened_lock);
+    pthread_mutex_unlock(&openedLock);
 
     // Clean up the mutex.
-    pthread_mutex_destroy(&opened_lock);
+    pthread_mutex_destroy(&openedLock);
 }
 
 // This is the private open() thread helper method. This recieves a pointer
@@ -53,7 +53,7 @@ void *AsyncFileWriter::thr_open_helper(void *context) {
 // The actual private thread method.
 void AsyncFileWriter::thr_open()
 {
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
 
     if (!opened) {
         // We don't need to check the result of open. If fd is -1 and opened
@@ -62,7 +62,7 @@ void AsyncFileWriter::thr_open()
         opened = true;
     }
 
-    pthread_mutex_unlock(&opened_lock);
+    pthread_mutex_unlock(&openedLock);
 }
 
 int AsyncFileWriter::openFile()
@@ -72,10 +72,10 @@ int AsyncFileWriter::openFile()
         return fd;
     }
 
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
 
     if (!opened) {
-        pthread_mutex_unlock(&opened_lock);
+        pthread_mutex_unlock(&openedLock);
         // Technically, pthread_attr_init can fail. It will never fail on
         // Linux, but this is why it is called here and not in the constructor.
         // It should only be called once, thus is protected by the fact opened
@@ -100,7 +100,7 @@ int AsyncFileWriter::openFile()
         return 0;
     }
 
-    pthread_mutex_unlock(&opened_lock);
+    pthread_mutex_unlock(&openedLock);
     return fd;
 }
 
@@ -123,7 +123,7 @@ int AsyncFileWriter::closeFile()
         return ret;
     }
 
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
 
     if (opened) {
         if (fd == -1) {
@@ -134,7 +134,7 @@ int AsyncFileWriter::closeFile()
         }
     }
 
-    pthread_mutex_unlock(&opened_lock); 
+    pthread_mutex_unlock(&openedLock);
     closeCalled = true;
     return ret;
 }
@@ -194,14 +194,14 @@ int AsyncFileWriter::write(const void *data, size_t count)
     }
 
     // Check if there was an error in open().
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
 
     if (opened && fd == -1) {
-        pthread_mutex_unlock(&opened_lock);
+        pthread_mutex_unlock(&openedLock);
         return -1;
     }
 
-    pthread_mutex_unlock(&opened_lock);
+    pthread_mutex_unlock(&openedLock);
     aioBuffer *aio_buffer;
     void *aio_data;
 
@@ -274,14 +274,14 @@ int AsyncFileWriter::write(const void *data, size_t count)
 int AsyncFileWriter::processQueue()
 {
     // No processing is done unless the file has been opened.
-    pthread_mutex_lock(&opened_lock);
+    pthread_mutex_lock(&openedLock);
     
     if (!opened) {
-        pthread_mutex_unlock(&opened_lock);
+        pthread_mutex_unlock(&openedLock);
         return 0;
     }
 
-    pthread_mutex_unlock(&opened_lock);
+    pthread_mutex_unlock(&openedLock);
     int ret;
     aioBuffer *previous = NULL;
     aioBuffer *removal = NULL;
