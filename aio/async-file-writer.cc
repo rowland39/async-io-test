@@ -42,7 +42,7 @@ AsyncFileWriter::~AsyncFileWriter()
     pthread_mutex_destroy(&openedLock);
 }
 
-// This is the private open() thread helper method. This recieves a pointer
+// This is the private open thread helper method. This recieves a pointer
 // to this so that it can call the right object's thr_open() method. You have
 // to use a static method in pthread_create().
 void *AsyncFileWriter::thr_open_helper(void *context) {
@@ -50,7 +50,7 @@ void *AsyncFileWriter::thr_open_helper(void *context) {
     return (void *)0;
 }
 
-// The actual private thread method.
+// The actual private thread open method.
 void AsyncFileWriter::thr_open()
 {
     pthread_mutex_lock(&openedLock);

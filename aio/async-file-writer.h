@@ -46,9 +46,9 @@ private:
 public:
     AsyncFileWriter(const char *);
     ~AsyncFileWriter();
-    // The private open() thread helper method. The argument is the this
-    // pointer so that it can call thr_open(). You have to use a static method
-    // in pthread_create().
+    // The private open thread helper method. The argument is the this pointer
+    // so that it can call thr_open(). You have to use a static method in
+    // pthread_create().
     static void *thr_open_helper(void *);
     // The actual threaded open method called by the private helper.
     void thr_open();
