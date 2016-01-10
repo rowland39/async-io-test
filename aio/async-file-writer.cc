@@ -15,7 +15,7 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     synchronous = false;
     closeCalled = false;
     opened = false;
-    openedLock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_init(&openedLock, NULL);
 }
 
 AsyncFileWriter::~AsyncFileWriter()
