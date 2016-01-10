@@ -154,11 +154,6 @@ bool AsyncFileWriter::pendingWrites()
     return submitted != completed;
 }
 
-int AsyncFileWriter::getQueueProcessingInterval()
-{
-    return queueProcessingInterval;
-}
-
 bool AsyncFileWriter::getSynchronous()
 {
     return synchronous;
@@ -167,6 +162,11 @@ bool AsyncFileWriter::getSynchronous()
 void AsyncFileWriter::setSynchronous(bool value)
 {
     synchronous = value;
+}
+
+int AsyncFileWriter::getQueueProcessingInterval()
+{
+    return queueProcessingInterval;
 }
 
 void AsyncFileWriter::setQueueProcessingInterval(int value)

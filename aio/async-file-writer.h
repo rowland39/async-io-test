@@ -60,10 +60,10 @@ public:
     bool getSynchronous();
     void setSynchronous(bool);
     int getQueueProcessingInterval();
-    int queueSize();
     void setQueueProcessingInterval(int);
     int write(const void *, size_t);
     int processQueue();
+    int queueSize();
     void cancelWrites();
 };
 
