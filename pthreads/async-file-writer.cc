@@ -115,10 +115,18 @@ void AsyncFileWriter::thr_writer()
                 // next pointer safely. We need to lock writerBuffer, adjust
                 // it, unlock it, then unlock the current writerBuffer.
                 aioBuffer *previous = writerBuffer;
+                // We don't unlock the writerBufferLock again because that
+                // will happen in either breaking out of the loop or in the
+                // first step in loop. It is critical to balance mutex locks
+                // and unlocks of course - or really weird errors happen. :-)
                 pthread_mutex_lock(&writerBufferLock);
                 writerBuffer = writerBuffer->next;
-                pthread_mutex_unlock(&writerBufferLock);
                 pthread_mutex_unlock(&previous->aioBufferLock);
+            } else {
+                // We need to ensure the mutex is locked for the while
+                // condition in the case write_fd was -1. Remember - balancing
+                // mutex locks and unlocks is critical.
+                pthread_mutex_lock(&writerBufferLock);
             }
         }
 
