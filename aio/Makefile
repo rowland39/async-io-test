@@ -1,8 +1,8 @@
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Linux)
-    CFLAGS=-std=c++11
-    LDFLAGS=-lrt -lpthread
+    CFLAGS=-std=c++11 -pthread
+    LDFLAGS=-lrt -pthread
     CC=gcc
     CPP=g++
 endif
