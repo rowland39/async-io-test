@@ -8,8 +8,8 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 ifeq ($(UNAME_S),FreeBSD)
-    CFLAGS=-std=c++11
-    LDFLAGS=-lpthread
+    CFLAGS=-std=c++11 -pthread
+    LDFLAGS=-pthread
     CC=cc
     CPP=c++
 endif
