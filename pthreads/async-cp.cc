@@ -32,10 +32,6 @@ int main(int argc, char **argv)
     }
 
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter(dest);
-    // The default queue processing interval is 40 writes.
-    //asyncFileWriter->setQueueProcessingInterval(1000);
-    // Disable processing the queue.
-    //asyncFileWriter->setQueueProcessingInterval(0);
 
     if (asyncFileWriter->openFile() == -1) {
         perror("asyncFileWriter.openFile()");
@@ -56,9 +52,8 @@ int main(int argc, char **argv)
 
     // Poll on the queue until the file is written.
     while (asyncFileWriter->pendingWrites()) {
-        if (asyncFileWriter->processQueue() == -1) {
-            perror("asyncFileWriter.processQueue() error");
-            asyncFileWriter->cancelWrites();
+        if (asyncFileWriter->getWriteError()) {
+            cout << "Write error detected." << endl;
             delete asyncFileWriter;
             return 1;
         }

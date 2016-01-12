@@ -2,10 +2,8 @@
 
 AsyncFileWriter::AsyncFileWriter(const char *filename)
 {
-    queueProcessingInterval = 40;
     listHead = NULL;
     lastBuffer = NULL;
-    writerBuffer = NULL;
     fd = -1;
     this->filename = filename;
     openFlags = O_WRONLY|O_CREAT|O_TRUNC;
@@ -17,7 +15,9 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     writeError = false;
     opened = false;
     pthread_mutex_init(&openedLock, NULL);
-    pthread_mutex_init(&writerBufferLock, NULL);
+    pthread_mutex_init(&listHeadLock, NULL);
+    pthread_mutex_init(&writeErrorLock, NULL);
+    pthread_mutex_init(&completedLock, NULL);
     writerStarted = false;
 }
 
@@ -43,7 +43,9 @@ AsyncFileWriter::~AsyncFileWriter()
 
     // Clean up the mutexes.
     pthread_mutex_destroy(&openedLock);
-    pthread_mutex_destroy(&writerBufferLock);
+    pthread_mutex_destroy(&listHeadLock);
+    pthread_mutex_destroy(&writeErrorLock);
+    pthread_mutex_destroy(&completedLock);
 }
 
 // This is the private open thread helper method. This recieves a pointer
@@ -81,57 +83,78 @@ void *AsyncFileWriter::thr_writer_helper(void *context) {
 void AsyncFileWriter::thr_writer()
 {
     int write_fd;
+    int old_state;
+
+    // Allow this thread to be canceled immediately from cancelWrites().
+    if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_state) != 0) {
+        pthread_mutex_lock(&writeErrorLock);
+        writeError = true;
+        pthread_mutex_unlock(&writeErrorLock);
+    }
 
     while (true) {
         // Walk all of the existing buffers until we get to the end of the
-        // current list of aioBuffer objects. The write() method will reset
-        // writerBuffer to the listHead if it is ever set to NULL;
-        pthread_mutex_lock(&writerBufferLock);
+        // current list of aioBuffer objects. The submitWrite() method will
+        // reset listHead if it is ever set to NULL here.
+        pthread_mutex_lock(&listHeadLock);
 
-        while (writerBuffer != NULL) {
-            pthread_mutex_unlock(&writerBufferLock);
-            // It is safe to use writerBuffer below until we change its value
-            // at the end, so it doesn't need to be locked. The write() method
-            // will only set it if it is set to NULL here.
-            pthread_mutex_lock(&writerBuffer->aioBufferLock);
-            write_fd = writerBuffer->fd;
-            pthread_mutex_unlock(&writerBuffer->aioBufferLock);
+        while (listHead != NULL) {
+            pthread_mutex_unlock(&listHeadLock);
+            // It is safe to use listHead because we are the only method that
+            // alters it once it has been set until it is NULL again. This is
+            // the only place the aioBuffer attributes besides the next pointer
+            // are used as well.
+            if (listHead->fd != -1) {
+                int wbytes = write(listHead->fd, listHead->data,
+                                   listHead->count);
 
-            // If the open thread has not opened the file yet, we will spin on
-            // the current writerBuffer until that happens.
-            if (write_fd != -1) {
-                int wbytes = write(write_fd, writerBuffer->data,
-                                   writerBuffer->count);
-                pthread_mutex_lock(&writerBuffer->aioBufferLock);
-                writerBuffer->completed = true;
-
-                if (wbytes != writerBuffer->count) {
-                    // There was either a short write or a write error. The
-                    // default value is already false;
-                    writerBuffer->error = true;
+                if (wbytes != listHead->count) {
+                    // There was either a short write or a write error. Set
+                    // the writeError flag.
+                    pthread_mutex_lock(&writeErrorLock);
+                    writeError = true;
+                    pthread_mutex_unlock(&writeErrorLock);
                 }
 
-                // We have the current writerBuffer locked so we can read its
-                // next pointer safely. We need to lock writerBuffer, adjust
-                // it, unlock it, then unlock the current writerBuffer.
-                aioBuffer *previous = writerBuffer;
-                // We don't unlock the writerBufferLock again because that
-                // will happen in either breaking out of the loop or in the
-                // first step in loop. It is critical to balance mutex locks
-                // and unlocks of course - or really weird errors happen. :-)
-                pthread_mutex_lock(&writerBufferLock);
-                writerBuffer = writerBuffer->next;
-                pthread_mutex_unlock(&previous->aioBufferLock);
+                // Lock the listHead and its aioBuffer so that listHead can
+                // be modified to the value of its aioBuffer next pointer.
+                // We advance the listHead because we are now removing its
+                // aioBuffer.
+                pthread_mutex_lock(&listHeadLock);
+                pthread_mutex_lock(&listHead->aioBufferLock);
+                aioBuffer *removal = listHead;
+                listHead = listHead->next;
+                pthread_mutex_unlock(&removal->aioBufferLock);
+                // Free the written aioBuffer.
+                pthread_mutex_destroy(&removal->aioBufferLock);
+                free(removal);
+                pthread_mutex_unlock(&listHeadLock);
+                // Update the completed count.
+                pthread_mutex_lock(&completedLock);
+                completed++;
+                pthread_mutex_unlock(&completedLock);
             } else {
-                // We need to ensure the mutex is locked for the while
-                // condition in the case write_fd was -1. Remember - balancing
-                // mutex locks and unlocks is critical.
-                pthread_mutex_lock(&writerBufferLock);
+                // Check if the file has been opened and set the file
+                // descriptor properly if it has. We will come around again in
+                // the while loop to check this same buffer until its fd has
+                // been set properly.
+                pthread_mutex_lock(&openedLock);
+
+                if (opened) {
+                    // This is the only place the aioBuffer fd structure member
+                    // is modified, so we don't need to lock the aioBuffer.
+                    listHead->fd = fd;
+                }
+
+                pthread_mutex_unlock(&openedLock);
             }
         }
 
-        // Nothing can be done yet.
-        pthread_mutex_unlock(&writerBufferLock);
+        // Nothing can be done yet because listHead was NULL. We balance the
+        // mutex lock done previously and try again.
+        pthread_mutex_unlock(&listHeadLock);
+        // Sleep for 1 milisecond.
+        usleep(1000);
     }
 }
 
@@ -216,12 +239,23 @@ int AsyncFileWriter::getSubmitted()
 
 int AsyncFileWriter::getCompleted()
 {
-    return completed;
+    int num_completed;
+
+    pthread_mutex_lock(&completedLock);
+    num_completed = completed;
+    pthread_mutex_unlock(&completedLock);
+
+    return num_completed;
 }
 
 bool AsyncFileWriter::pendingWrites()
 {
-    return submitted != completed;
+    bool pending;
+    pthread_mutex_lock(&completedLock);
+    pending = submitted != completed;
+    pthread_mutex_unlock(&completedLock);
+
+    return pending;
 }
 
 bool AsyncFileWriter::getSynchronous()
@@ -237,16 +271,6 @@ void AsyncFileWriter::setSynchronous(bool value)
 bool AsyncFileWriter::getWriteError()
 {
     return writeError;
-}
-
-int AsyncFileWriter::getQueueProcessingInterval()
-{
-    return queueProcessingInterval;
-}
-
-void AsyncFileWriter::setQueueProcessingInterval(int value)
-{
-    queueProcessingInterval = value;
 }
 
 int AsyncFileWriter::submitWrite(const void *data, size_t count)
@@ -265,8 +289,19 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
         return wbytes;
     }
 
+    // Check if there was a write error.
+    pthread_mutex_lock(&writeErrorLock);
+
+    if (writeError) {
+        pthread_mutex_unlock(&writeErrorLock);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&writeErrorLock);
+
+    // Check if there was an error in open() and get the file descriptor if
+    // there was no error.
     int current_fd;
-    // Check if there was an error in open().
     pthread_mutex_lock(&openedLock);
 
     if (opened && fd == -1) {
@@ -295,8 +330,6 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
     }
 
     memcpy(aio_data, data, count);
-    aio_buffer->completed = false;
-    aio_buffer->error = false;
     aio_buffer->fd = current_fd;
     aio_buffer->data = aio_data;
     aio_buffer->count = count;
@@ -304,6 +337,8 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
     aio_buffer->next = NULL;
 
     // Set the listHead and advance lastBuffer.
+    pthread_mutex_lock(&listHeadLock);
+
     if (listHead == NULL) {
         listHead = aio_buffer;
         lastBuffer = aio_buffer;
@@ -314,32 +349,13 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
         lastBuffer = aio_buffer;
     }
 
-    // If the writerBuffer is NULL, reset it to the head of the list so the
-    // writer thread can start over. This only happens if the writer has
-    // caught up before we added a new item.
-    pthread_mutex_lock(&writerBufferLock);
-
-    if (writerBuffer == NULL) {
-        writerBuffer = listHead;
-    }
-
-    pthread_mutex_unlock(&writerBufferLock);
+    pthread_mutex_unlock(&listHeadLock);
     // Increment the offset for the next write and the submitted write count.
     submitted += 1;
 
-    // Process the queue every queueProcessingInterval requests. This will
-    // free up memory as new writes are added to the queue. Before finishing,
-    // processQueue() should be called by the caller while pendingWrites()
-    // returns true. Setting the queueProcessingInterval to 0 cancels this
-    // behavior. If the writer hasn't started yet, start the writer first.
-    if (writerStarted) {
-        if (queueProcessingInterval > 0 &&
-            submitted % queueProcessingInterval == 0) {
-            if (processQueue() == -1) {
-                return -1;
-            }
-        }
-    } else {
+    // The writer will process the aioBuffer list itself because it does
+    // writes in the order they were submitted.
+    if (!writerStarted) {
         // Start the writer thread in a non-detached state so we can kill it
         // later.
         if (pthread_create(&writerTid, NULL,
@@ -348,66 +364,6 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
         }
 
         writerStarted = true;
-    }
-
-    return 0;
-}
-
-int AsyncFileWriter::processQueue()
-{
-    // No processing is done unless the file has been opened.
-    pthread_mutex_lock(&openedLock);
-    
-    if (!opened) {
-        pthread_mutex_unlock(&openedLock);
-        return 0;
-    }
-
-    pthread_mutex_unlock(&openedLock);
-    bool write_completed;
-    bool error;
-    aioBuffer *removal = NULL;
-    aioBuffer *current = listHead;
-
-    while (current != NULL) {
-        pthread_mutex_lock(&current->aioBufferLock);
-        write_completed = current->completed;
-        error = current->error;
-        // Set the file descriptor now that the file has been opened.
-        current->fd = fd;
-        pthread_mutex_unlock(&current->aioBufferLock);
-
-        // We don't need to worry about locking the aioBuffer using its
-        // aioBufferLock mutex because the writer is done with it.
-        if (write_completed) {
-            // Flag that there was a write error if one is ever found. The
-            // caller should give up, cancel writes, etc. if there are any
-            // write errors.
-            if (error) {
-                writeError = true;
-            }
-
-            // Writes are always completed in the order they were submitted.
-            // We are always looking at the listHead. We can only advance
-            // until we find an incomplete request or hit the end of the list.
-            // We don't change lastBuffer as we won't hit the end of the
-            // queue until everything is written.
-            listHead = current->next;
-            removal = current;
-            current = current->next;
-            pthread_mutex_destroy(&removal->aioBufferLock);
-            free((void *)removal->data);
-            free(removal);
-            completed++;
-        } else {
-            // Stop processing aioBuffer objects if we found one which has not
-            // been written.
-            current = NULL;
-        }
-    }
-
-    if (writeError) {
-        return -1;
     }
 
     return 0;
@@ -433,9 +389,21 @@ int AsyncFileWriter::queueSize()
 void AsyncFileWriter::cancelWrites()
 {
     // Stop the writer thread.
-    pthread_mutex_lock(&writerBufferLock);
+    pthread_mutex_lock(&listHeadLock);
     pthread_cancel(writerTid);
-    pthread_mutex_unlock(&writerBufferLock);
+    pthread_join(writerTid, NULL);
+    // Free any remaining aioBuffers.
+    aioBuffer *removal;
+    aioBuffer *current = listHead;
+
+    while (current != NULL) {
+        removal = current;
+        pthread_mutex_destroy(&current->aioBufferLock);
+        current = current->next;
+        free(removal);
+    }
+
+    pthread_mutex_unlock(&listHeadLock);
 
     if (listHead != NULL) {
         // Unlink the file.

@@ -23,10 +23,6 @@ int main(int argc, char **argv)
 
     int count = (int)strtol(argv[1], (char **)NULL, 10);
     AsyncFileWriter *asyncFileWriter = new AsyncFileWriter("test-file.txt");
-    // The default queue processing interval is 40 writes.
-    asyncFileWriter->setQueueProcessingInterval(1000);
-    // Disable processing the queue.
-    //asyncFileWriter->setQueueProcessingInterval(0);
 
     if (asyncFileWriter->openFile() == -1) {
         perror("asyncFileWriter.openFile()");
@@ -42,10 +38,9 @@ int main(int argc, char **argv)
         }
     }
 
-    // Destructor test (freeing AIO buffer list before completed). This will
-    // automatically cancel any pending writes. This will also unlink the
-    // file because we destroy the object before writes are completed (which
-    // is the same as calling cancelWrites().
+    // Destructor test. This will automatically cancel any pending writes. This
+    // will also unlink the file because we destroy the object before writes
+    // are completed (which is the same as calling cancelWrites()).
     //delete asyncFileWriter;
     //return 0;
 
@@ -54,9 +49,8 @@ int main(int argc, char **argv)
 
     // Poll on the queue until the file is written.
     while (asyncFileWriter->pendingWrites()) {
-        if (asyncFileWriter->processQueue() == -1) {
-            perror("asyncFileWriter.processQueue() error");
-            asyncFileWriter->cancelWrites();
+        if (asyncFileWriter->getWriteError()) {
+            cout << "Write error detected." << endl;
             delete asyncFileWriter;
             return 1;
         }

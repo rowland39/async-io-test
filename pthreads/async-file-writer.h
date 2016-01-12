@@ -19,18 +19,14 @@ class AsyncFileWriter {
 private:
     typedef struct aioBuffer {
         pthread_mutex_t aioBufferLock;
-        bool            completed;
-        bool            error;
         int             fd;
         void            *data;
         size_t          count;
         aioBuffer       *next;
     } aioBuffer;
 
-    int                 queueProcessingInterval;
     aioBuffer           *listHead;
     aioBuffer           *lastBuffer;
-    aioBuffer           *writerBuffer;
     int                 fd;
     const char          *filename;
     int                 openFlags;
@@ -46,7 +42,9 @@ private:
     // can block. We never want to block the caller.
     bool                opened;
     pthread_mutex_t     openedLock;
-    pthread_mutex_t     writerBufferLock;
+    pthread_mutex_t     listHeadLock;
+    pthread_mutex_t     writeErrorLock;
+    pthread_mutex_t     completedLock;
     pthread_t           openTid;
     pthread_t           writerTid;
     pthread_attr_t      attr;
@@ -78,8 +76,6 @@ public:
     bool getSynchronous();
     void setSynchronous(bool);
     bool getWriteError();
-    int getQueueProcessingInterval();
-    void setQueueProcessingInterval(int);
     int submitWrite(const void *, size_t);
     int processQueue();
     int queueSize();
