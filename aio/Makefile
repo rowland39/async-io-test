@@ -14,6 +14,13 @@ ifeq ($(UNAME_S),FreeBSD)
     CPP=c++
 endif
 
+ifeq ($(UNAME_S),Darwin)
+    CFLAGS=-std=c++11
+    LDFLAGS=-lpthread
+    CC=cc
+    CPP=c++
+endif
+
 .PHONY: all
 all: async-io-test sync-io-test async-cp sync-cp
 

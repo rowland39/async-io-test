@@ -97,16 +97,9 @@ void *AsyncFileWriter::thr_writer_helper(void *context) {
 void AsyncFileWriter::thr_writer()
 {
     int write_fd;
-    int old_state;
-
-    // Allow this thread to be canceled immediately from cancelWrites().
-    if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old_state) != 0) {
-        pthread_mutex_lock(&writeErrorLock);
-        writeError = true;
-        pthread_mutex_unlock(&writeErrorLock);
-    }
 
     while (true) {
+        pthread_testcancel();
         // Walk all of the existing buffers until we get to the end of the
         // current list of aioBuffer objects. The submitWrite() method will
         // reset listHead if it is ever set to NULL here.
@@ -164,6 +157,7 @@ void AsyncFileWriter::thr_writer()
                 pthread_mutex_unlock(&openedLock);
             }
 
+            pthread_testcancel();
             // Lock the mutex again for the while loop evaluation and to
             // balance the unlock inside the loop.
             pthread_mutex_lock(&listHeadLock);
@@ -172,6 +166,7 @@ void AsyncFileWriter::thr_writer()
         // Nothing can be done yet because listHead was NULL. We balance the
         // mutex lock done previously and try again.
         pthread_mutex_unlock(&listHeadLock);
+        pthread_testcancel();
         // Sleep for 1 milisecond.
         usleep(1000);
     }
@@ -415,7 +410,6 @@ int AsyncFileWriter::queueSize()
 void AsyncFileWriter::cancelWrites()
 {
     // Stop the writer thread.
-    pthread_mutex_lock(&listHeadLock);
     pthread_cancel(writerTid);
     pthread_join(writerTid, NULL);
     // Free any remaining aioBuffers.
@@ -428,8 +422,6 @@ void AsyncFileWriter::cancelWrites()
         current = current->next;
         free(removal);
     }
-
-    pthread_mutex_unlock(&listHeadLock);
 
     if (listHead != NULL) {
         // Unlink the file.

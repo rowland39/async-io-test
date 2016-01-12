@@ -1,7 +1,7 @@
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Linux)
-    CFLAGS=-std=c++11 -pthread -g
+    CFLAGS=-std=c++11 -pthread
     LDFLAGS=-pthread
     CC=gcc
     CPP=g++
@@ -10,6 +10,13 @@ endif
 ifeq ($(UNAME_S),FreeBSD)
     CFLAGS=-std=c++11 -pthread
     LDFLAGS=-pthread
+    CC=cc
+    CPP=c++
+endif
+
+ifeq ($(UNAME_S),Darwin)
+    CFLAGS=-std=c++11
+    LDFLAGS=-lpthread
     CC=cc
     CPP=c++
 endif
