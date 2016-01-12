@@ -14,10 +14,24 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     closeCalled = false;
     writeError = false;
     opened = false;
-    pthread_mutex_init(&openedLock, NULL);
-    pthread_mutex_init(&listHeadLock, NULL);
-    pthread_mutex_init(&writeErrorLock, NULL);
-    pthread_mutex_init(&completedLock, NULL);
+    initError = false;
+
+    if (pthread_mutex_init(&openedLock, NULL) != 0) {
+        initError = true;
+    }
+
+    if (pthread_mutex_init(&listHeadLock, NULL) != 0) {
+        initError = true;
+    }
+
+    if (pthread_mutex_init(&writeErrorLock, NULL) != 0) {
+        initError = true;
+    }
+
+    if (pthread_mutex_init(&completedLock, NULL) != 0) {
+        initError = true;
+    }
+
     writerStarted = false;
 }
 
@@ -100,6 +114,7 @@ void AsyncFileWriter::thr_writer()
 
         while (listHead != NULL) {
             pthread_mutex_unlock(&listHeadLock);
+
             // It is safe to use listHead because we are the only method that
             // alters it once it has been set until it is NULL again. This is
             // the only place the aioBuffer attributes besides the next pointer
@@ -148,6 +163,10 @@ void AsyncFileWriter::thr_writer()
 
                 pthread_mutex_unlock(&openedLock);
             }
+
+            // Lock the mutex again for the while loop evaluation and to
+            // balance the unlock inside the loop.
+            pthread_mutex_lock(&listHeadLock);
         }
 
         // Nothing can be done yet because listHead was NULL. We balance the
@@ -163,6 +182,12 @@ int AsyncFileWriter::openFile()
     if (synchronous) {
         fd = open(filename, openFlags, openMode);
         return fd;
+    }
+
+    // Check if there was an init error. This only happens if the mutex
+    // initialization failed.
+    if (initError) {
+        return -1;
     }
 
     pthread_mutex_lock(&openedLock);
@@ -251,6 +276,7 @@ int AsyncFileWriter::getCompleted()
 bool AsyncFileWriter::pendingWrites()
 {
     bool pending;
+
     pthread_mutex_lock(&completedLock);
     pending = submitted != completed;
     pthread_mutex_unlock(&completedLock);
@@ -287,6 +313,12 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
         }
 
         return wbytes;
+    }
+
+    // Check if there was an init error. This only happens if the mutex
+    // initialization failed.
+    if (initError) {
+        return -1;
     }
 
     // Check if there was a write error.
@@ -371,17 +403,11 @@ int AsyncFileWriter::submitWrite(const void *data, size_t count)
 
 int AsyncFileWriter::queueSize()
 {
-    aioBuffer *previous;
-    aioBuffer *current = listHead;
-    int count = 0;
+    int count;
 
-    while (current != NULL) {
-        previous = current;
-        pthread_mutex_lock(&current->aioBufferLock);
-        current = current->next;
-        pthread_mutex_unlock(&previous->aioBufferLock);
-        count++;
-    }
+    pthread_mutex_lock(&completedLock);
+    count = submitted - completed;
+    pthread_mutex_unlock(&completedLock);
 
     return count;
 }

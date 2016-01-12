@@ -15,7 +15,11 @@ AsyncFileWriter::AsyncFileWriter(const char *filename)
     synchronous = false;
     closeCalled = false;
     opened = false;
-    pthread_mutex_init(&openedLock, NULL);
+    initError = false;
+
+    if (pthread_mutex_init(&openedLock, NULL) != 0) {
+        initError = true;
+    }
 }
 
 AsyncFileWriter::~AsyncFileWriter()
@@ -70,6 +74,12 @@ int AsyncFileWriter::openFile()
     if (synchronous) {
         fd = open(filename, openFlags, openMode);
         return fd;
+    }
+
+    // Check if there was an init error. This only happens if the mutex
+    // initialization failed.
+    if (initError) {
+        return -1;
     }
 
     pthread_mutex_lock(&openedLock);
@@ -191,6 +201,12 @@ int AsyncFileWriter::write(const void *data, size_t count)
         // count.
         offset += count;
         return wbytes;
+    }
+
+    // Check if there was an init error. This only happens if the mutex
+    // initialization failed.
+    if (initError) {
+        return -1;
     }
 
     int current_fd;
@@ -349,15 +365,7 @@ int AsyncFileWriter::processQueue()
 
 int AsyncFileWriter::queueSize()
 {
-    aioBuffer *current = listHead;
-    int count = 0;
-
-    while (current != NULL) {
-        current = current->next;
-        count++;
-    }
-
-    return count;
+    return submitted - completed;
 }
 
 void AsyncFileWriter::cancelWrites()

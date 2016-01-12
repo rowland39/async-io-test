@@ -34,6 +34,7 @@ private:
     int                 completed;
     bool                synchronous;
     bool                closeCalled;
+    bool                initError;
 
     // This flag indicates if the file we are working on has been opened.
     // The open() method executes in a separate thread because open() itself
